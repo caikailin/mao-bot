@@ -1,0 +1,55 @@
+name: 毛泽东著作推送
+
+on:
+  schedule:
+    - cron: '0 0,6,12,18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mao-bot
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 读取进度
+        id: progress
+        run: echo "current_index=$(jq '.current_index' config.json)" >> $GITHUB_OUTPUT
+
+      - name: 检查是否已完成
+        id: check
+        run: |
+          if [ "${{ steps.progress.outputs.current_index }}" -ge 28 ]; then
+            echo "complete=true" >> $GITHUB_OUTPUT
+            echo "全部28段已推送完毕！"
+          else
+            echo "complete=false" >> $GITHUB_OUTPUT
+            echo "准备推送下一段"
+          fi
+
+      - name: 执行推送
+        if: steps.check.outputs.complete == 'false'
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+        run: python mao_bot.py
+
+      - name: 提交进度更新
+        if: steps.check.outputs.complete == 'false'
+        run: |
+          git config user.name "mao-bot"
+          git config user.email "bot@mao-works.com"
+          git add config.json
+          git diff --cached --quiet || git commit -m "chore: update push progress"
+          git push
